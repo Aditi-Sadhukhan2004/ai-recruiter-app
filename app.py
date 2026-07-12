@@ -1,3 +1,8 @@
+# --- FIX FOR CHROMADB ON RENDER (MUST BE AT THE VERY TOP) ---
+__import__('pysqlite3')
+import sys
+sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+
 import streamlit as st
 import os
 import re
@@ -26,6 +31,12 @@ with col1:
     st.subheader("📄 Step 2: Upload Candidate Data")
     resume_file = st.file_uploader("Upload Candidate Resume (PDF)", type=["pdf"], key="resume_pdf")
 
+# --- MEMORY OPTIMIZATION FOR RENDER ---
+@st.cache_resource
+def get_embeddings():
+    # Cache the model so it loads only once, saving RAM on free servers
+    return HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+
 def process_dual_pdf_rag(resume_path, job_path):
     job_loader = PyPDFLoader(job_path)
     job_docs = job_loader.load()
@@ -37,13 +48,12 @@ def process_dual_pdf_rag(resume_path, job_path):
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=400, chunk_overlap=50)
     resume_chunks = text_splitter.split_documents(resume_docs)
     
-    # Lightweight embedding model that runs perfectly on free servers
-    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+    # Use the cached embeddings
+    embeddings = get_embeddings()
     
     vector_store = Chroma.from_documents(documents=resume_chunks, embedding=embeddings)
     retriever = vector_store.as_retriever(search_kwargs={"k": 3})
     
-    # Cloud-hosted Llama3 engine
     llm = ChatGroq(model="llama3-8b-8192", groq_api_key=GROQ_API_KEY, temperature=0.1)
     
     system_prompt = (
